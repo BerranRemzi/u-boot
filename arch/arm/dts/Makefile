@@ -66,6 +66,7 @@ dtb-$(CONFIG_ARCH_KIRKWOOD) += \
 	kirkwood-ns2max.dtb \
 	kirkwood-ns2mini.dtb \
 	kirkwood-nsa310s.dtb \
+	kirkwood-nsa325.dtb \
 	kirkwood-openrd-base.dtb \
 	kirkwood-openrd-client.dtb \
 	kirkwood-openrd-ultimate.dtb \
@@ -177,6 +178,7 @@ dtb-$(CONFIG_ROCKCHIP_RK3568) += \
 	rk3566-soquartz-blade.dtb \
 	rk3566-soquartz-cm4.dtb \
 	rk3566-soquartz-model-a.dtb \
+	rk3568-bpi-r2-pro.dtb \
 	rk3568-evb.dtb \
 	rk3568-lubancat-2.dtb \
 	rk3568-nanopi-r5c.dtb \
@@ -395,25 +397,43 @@ dtb-$(CONFIG_ARCH_ZYNQMP) += \
 	zynqmp-a2197-revA.dtb			\
 	zynqmp-dlc21-revA.dtb			\
 	zynqmp-e-a2197-00-revA.dtb		\
+	zynqmp-e-a2197-00-revB.dtb		\
 	zynqmp-g-a2197-00-revA.dtb		\
 	zynqmp-m-a2197-01-revA.dtb		\
 	zynqmp-m-a2197-02-revA.dtb		\
 	zynqmp-m-a2197-03-revA.dtb		\
 	zynqmp-p-a2197-00-revA.dtb		\
+	zynqmp-p-a2197-00-revA-x-prc-01-revA.dtbo	\
+	zynqmp-p-a2197-00-revA-x-prc-02-revA.dtbo	\
+	zynqmp-p-a2197-00-revA-x-prc-03-revA.dtbo	\
+	zynqmp-p-a2197-00-revA-x-prc-04-revA.dtbo	\
+	zynqmp-p-a2197-00-revA-x-prc-05-revA.dtbo	\
 	zynqmp-mini.dtb				\
 	zynqmp-mini-emmc0.dtb			\
 	zynqmp-mini-emmc1.dtb			\
 	zynqmp-mini-nand.dtb			\
 	zynqmp-mini-qspi.dtb			\
+	zynqmp-sc-revB.dtb			\
+	zynqmp-sc-revC.dtb			\
+	zynqmp-sc-vek280-revA.dtbo		\
+	zynqmp-sc-vek280-revB.dtbo		\
+	zynqmp-sc-vhk158-revA.dtbo		\
+	zynqmp-sc-vpk120-revB.dtbo		\
+	zynqmp-sc-vpk180-revA.dtbo		\
+	zynqmp-sc-vpk180-revB.dtbo		\
+	zynqmp-sc-vn-p-b2197-00-revA.dtbo	\
 	zynqmp-sm-k24-revA.dtb			\
 	zynqmp-smk-k24-revA.dtb			\
 	zynqmp-sm-k26-revA.dtb			\
 	zynqmp-smk-k26-revA.dtb			\
+	zynqmp-sck-kd-g-revA.dtbo		\
 	zynqmp-sck-kr-g-revA.dtbo		\
 	zynqmp-sck-kr-g-revB.dtbo		\
 	zynqmp-sck-kv-g-revA.dtbo		\
 	zynqmp-sck-kv-g-revB.dtbo		\
 	zynqmp-topic-miamimp-xilinx-xdp-v1r1.dtb	\
+	zynqmp-vpk120-revA.dtb			\
+	zynqmp-vp-x-a2785-00-revA.dtb		\
 	zynqmp-zcu100-revC.dtb			\
 	zynqmp-zcu102-revA.dtb			\
 	zynqmp-zcu102-revB.dtb			\
@@ -429,6 +449,8 @@ dtb-$(CONFIG_ARCH_ZYNQMP) += \
 	zynqmp-zcu1285-revA.dtb			\
 	zynqmp-zcu208-revA.dtb			\
 	zynqmp-zcu216-revA.dtb			\
+	zynqmp-zcu670-revA.dtb			\
+	zynqmp-zcu670-revB.dtb			\
 	zynqmp-zc1232-revA.dtb			\
 	zynqmp-zc1254-revA.dtb			\
 	zynqmp-zc1751-xm015-dc1.dtb		\
@@ -1025,6 +1047,7 @@ dtb-$(CONFIG_ARCH_IMX8M) += \
 	imx8mm-venice-gw7902.dtb \
 	imx8mm-venice-gw7903.dtb \
 	imx8mm-venice-gw7904.dtb \
+	imx8mm-venice-gw7905-0x.dtb \
 	imx8mm-verdin-wifi-dev.dtb \
 	phycore-imx8mm.dtb \
 	imx8mn-bsh-smm-s2.dtb \
@@ -1042,13 +1065,21 @@ dtb-$(CONFIG_ARCH_IMX8M) += \
 	imx8mq-phanbell.dtb \
 	imx8mp-beacon-kit.dtb \
 	imx8mp-data-modul-edm-sbc.dtb \
+	imx8mp-dhcom-som-overlay-rev100.dtbo \
+	imx8mp-dhcom-som-overlay-eth1xfast.dtbo \
+	imx8mp-dhcom-som-overlay-eth2xfast.dtbo \
+	imx8mp-dhcom-pdk-overlay-eth2xfast.dtbo \
 	imx8mp-dhcom-pdk2.dtb \
 	imx8mp-dhcom-pdk3.dtb \
+	imx8mp-dhcom-pdk3-overlay-rev100.dtbo \
 	imx8mp-evk.dtb \
 	imx8mp-icore-mx8mp-edimm2.2.dtb \
 	imx8mp-msc-sm2s.dtb \
 	imx8mp-phyboard-pollux-rdk.dtb \
 	imx8mp-venice.dtb \
+	imx8mp-venice-gw71xx-2x.dtb \
+	imx8mp-venice-gw72xx-2x.dtb \
+	imx8mp-venice-gw73xx-2x.dtb \
 	imx8mp-venice-gw74xx.dtb \
 	imx8mp-venice-gw7905-2x.dtb \
 	imx8mp-verdin-wifi-dev.dtb \
@@ -1098,6 +1129,9 @@ dtb-$(CONFIG_RCAR_GEN4) += \
 	r8a779a0-falcon-u-boot.dtb \
 	r8a779f0-spider-u-boot.dtb \
 	r8a779g0-white-hawk-u-boot.dtb
+
+dtb-$(CONFIG_TARGET_RZG2L) += \
+	r9a07g044l2-smarc.dts
 
 ifdef CONFIG_RCAR_64
 DTC_FLAGS += -R 4 -p 0x1000
@@ -1200,6 +1234,9 @@ dtb-$(CONFIG_TARGET_SAMA5D27_WLSOM1_EK) += \
 
 dtb-$(CONFIG_TARGET_SAMA5D2_ICP) += \
 	at91-sama5d2_icp.dtb
+
+dtb-$(CONFIG_TARGET_SAMA5D29_CURIOSITY) += \
+	at91-sama5d29_curiosity.dtb
 
 dtb-$(CONFIG_TARGET_SAMA5D3XEK) += \
 	sama5d31ek.dtb \
@@ -1334,6 +1371,8 @@ dtb-$(CONFIG_SOC_K3_AM642) += k3-am642-evm.dtb \
 
 dtb-$(CONFIG_SOC_K3_AM625) += k3-am625-sk.dtb \
 			      k3-am625-r5-sk.dtb \
+			      k3-am625-beagleplay.dtb \
+			      k3-am625-r5-beagleplay.dtb \
 			      k3-am625-verdin-wifi-dev.dtb \
 			      k3-am625-verdin-r5.dtb
 

@@ -123,6 +123,7 @@ F:	configs/apple_m1_defconfig
 F:	drivers/iommu/apple_dart.c
 F:	drivers/nvme/nvme_apple.c
 F:	drivers/pci/pcie_apple.c
+F:	drivers/phy/phy-apple-atc.c
 F:	drivers/pinctrl/pinctrl-apple.c
 F:	drivers/watchdog/apple_wdt.c
 F:	include/configs/apple.h
@@ -160,6 +161,7 @@ F:	drivers/net/phy/meson-gxl.c
 F:	drivers/adc/meson-saradc.c
 F:	drivers/phy/meson*
 F:	drivers/mmc/meson_gx_mmc.c
+F:	drivers/sm/meson-sm.c
 F:	drivers/spi/meson_spifc.c
 F:	drivers/pinctrl/meson/
 F:	drivers/power/domain/meson-gx-pwrc-vpu.c
@@ -298,7 +300,9 @@ F:	arch/arm/include/asm/arch-vf610/
 F:	arch/arm/include/asm/mach-imx/
 F:	board/freescale/*mx*/
 F:	board/freescale/common/
+F:	common/spl/spl_imx_container.c
 F:	drivers/serial/serial_mxc.c
+F:	include/imx_container.h
 
 ARM HISILICON
 M:	Peter Griffin <peter.griffin@linaro.org>
@@ -621,7 +625,7 @@ F:	drivers/ram/stm32mp1/
 F:	drivers/remoteproc/stm32_copro.c
 F:	drivers/reset/stm32-reset.c
 F:	drivers/rng/optee_rng.c
-F:	drivers/rng/stm32mp1_rng.c
+F:	drivers/rng/stm32_rng.c
 F:	drivers/rtc/stm32_rtc.c
 F:	drivers/serial/serial_stm32.*
 F:	drivers/spi/stm32_qspi.c
@@ -723,7 +727,10 @@ F:	drivers/usb/musb-new/ux500.c
 F:	drivers/video/mcde_simple.c
 
 ARM UNIPHIER
-S:	Orphan (Since 2020-09)
+M:	Kunihiko Hayashi <hayashi.kunihiko@socionext.com>
+R:	Dai Okamura <okamura.dai@socionext.com>
+S:	Maintained
+F:	arch/arm/dts/uniphier-*
 F:	arch/arm/mach-uniphier/
 F:	configs/uniphier_*_defconfig
 N:	uniphier
@@ -1544,7 +1551,6 @@ F:	arch/arm/mach-omap2/omap5/sec_entry_cpu1.S
 F:	arch/arm/mach-omap2/sec-common.c
 F:	arch/arm/mach-omap2/config_secure.mk
 F:	arch/arm/mach-k3/security.c
-F:	arch/arm/mach-k3/config_secure.mk
 F:	configs/am335x_hs_evm_defconfig
 F:	configs/am335x_hs_evm_uart_defconfig
 F:	configs/am43xx_hs_evm_defconfig
@@ -1557,8 +1563,6 @@ F:	configs/k2hk_hs_evm_defconfig
 F:	configs/k2e_hs_evm_defconfig
 F:	configs/k2g_hs_evm_defconfig
 F:	configs/k2l_hs_evm_defconfig
-F:	configs/am65x_hs_evm_r5_defconfig
-F:	configs/am65x_hs_evm_a53_defconfig
 
 TPM DRIVERS
 M:	Ilias Apalodimas <ilias.apalodimas@linaro.org>
@@ -1595,7 +1599,7 @@ T:	git https://source.denx.de/u-boot/custodians/u-boot-ubi.git
 F:	drivers/mtd/ubi/
 
 UFS
-M:	Bhupesh Sharma <bhupesh.sharma@linaro.org>
+M:	Bhupesh Sharma <bhupesh.linux@gmail.com>
 M:	Neha Malcom Francis <n-francis@ti.com>
 S:	Maintained
 F:	drivers/ufs/

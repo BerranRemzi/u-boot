@@ -123,20 +123,6 @@ int do_bootm(struct cmd_tbl *cmdtp, int flag, int argc, char *const argv[])
 	int states;
 	int ret;
 
-#ifdef CONFIG_NEEDS_MANUAL_RELOC
-	static int relocated = 0;
-
-	if (!relocated) {
-		int i;
-
-		/* relocate names of sub-command table */
-		for (i = 0; i < ARRAY_SIZE(cmd_bootm_sub); i++)
-			cmd_bootm_sub[i].name += gd->reloc_off;
-
-		relocated = 1;
-	}
-#endif
-
 	/* determine if we have a sub command */
 	argc--; argv++;
 	if (argc > 0) {
@@ -182,8 +168,7 @@ int bootm_maybe_autostart(struct cmd_tbl *cmdtp, const char *cmd)
 	return 0;
 }
 
-#ifdef CONFIG_SYS_LONGHELP
-static char bootm_help_text[] =
+U_BOOT_LONGHELP(bootm,
 	"[addr [arg ...]]\n    - boot application image stored in memory\n"
 	"\tpassing arguments 'arg ...'; when booting a Linux kernel,\n"
 	"\t'arg' can be the address of an initrd image\n"
@@ -222,8 +207,7 @@ static char bootm_help_text[] =
 #if defined(CONFIG_TRACE)
 	"\tfake    - OS specific fake start without go\n"
 #endif
-	"\tgo      - start OS";
-#endif
+	"\tgo      - start OS");
 
 U_BOOT_CMD(
 	bootm,	CONFIG_SYS_MAXARGS,	1,	do_bootm,
