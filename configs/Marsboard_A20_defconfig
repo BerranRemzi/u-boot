@@ -28,7 +28,7 @@ CONFIG_USB1_VBUS_PIN="PH12"
 ##	...is set in Cubieboard2 DT (but "no card present" if used)
 ##	...set in DT for Marsboard_A10 (but not desirable?)
 ##CONFIG_MMC0_CD_PIN="PH1"
-CONFIG_MMC0_CD_PIN=""
+CONFIG_MMC0_CD_PIN="PH10"
 ##CONFIG_MMC_SUNXI_SLOT_EXTRA=2
 ## ---
 ## --- WmT, 2019-03-12: old kernel support
