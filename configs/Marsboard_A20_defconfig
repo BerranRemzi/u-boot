@@ -21,6 +21,7 @@ CONFIG_DRAM_TIMINGS_DDR3_800E_1066G_1333J=y
 CONFIG_NR_DRAM_BANKS=1
 CONFIG_USB0_ID_DET="PH11"
 CONFIG_USB1_VBUS_PIN="PH12"
+CONFIG_AXP_GPIO=y
 ## ---
 
 ## --- WmT, testing: CONFIG_MMC0_CD_PIN
@@ -28,7 +29,7 @@ CONFIG_USB1_VBUS_PIN="PH12"
 ##	...is set in Cubieboard2 DT (but "no card present" if used)
 ##	...set in DT for Marsboard_A10 (but not desirable?)
 ##CONFIG_MMC0_CD_PIN="PH1"
-CONFIG_MMC0_CD_PIN="PH10"
+##CONFIG_MMC0_CD_PIN="PH10"
 ##CONFIG_MMC_SUNXI_SLOT_EXTRA=2
 ## ---
 ## --- WmT, 2019-03-12: old kernel support
