@@ -6,8 +6,8 @@
 #ifndef __CBFS_H
 #define __CBFS_H
 
-#include <compiler.h>
 #include <linux/compiler.h>
+#include <linux/types.h>
 
 struct cbfs_priv;
 
@@ -22,7 +22,7 @@ enum cbfs_result {
 enum cbfs_filetype {
 	CBFS_TYPE_BOOTBLOCK = 0x01,
 	CBFS_TYPE_CBFSHEADER = 0x02,
-	CBFS_TYPE_STAGE = 0x10,
+	CBFS_TYPE_LEGACY_STAGE = 0x10,
 	CBFS_TYPE_PAYLOAD = 0x20,
 	CBFS_TYPE_SELF = CBFS_TYPE_PAYLOAD,
 

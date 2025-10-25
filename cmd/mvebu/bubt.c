@@ -5,7 +5,6 @@
  */
 
 #include <config.h>
-#include <common.h>
 #include <command.h>
 #include <env.h>
 #include <image.h>
@@ -186,7 +185,7 @@ static int mmc_burn_image(size_t image_size)
 	lbaint_t	blk_count;
 	ulong		blk_written;
 	int		err;
-	const u8	mmc_dev_num = CONFIG_SYS_MMC_ENV_DEV;
+	const u8	mmc_dev_num = CONFIG_ENV_MMC_DEVICE_INDEX;
 #ifdef CONFIG_BLK
 	struct blk_desc *blk_desc;
 #endif
@@ -224,8 +223,8 @@ static int mmc_burn_image(size_t image_size)
 #endif
 
 	part = EXT_CSD_EXTRACT_BOOT_PART(mmc->part_config);
-	if (part == 7)
-		part = 0;
+	if (part == EMMC_BOOT_PART_USER)
+		part = EMMC_HWPART_DEFAULT;
 
 #ifdef CONFIG_BLK
 	err = blk_dselect_hwpart(blk_desc, part);
@@ -240,9 +239,16 @@ static int mmc_burn_image(size_t image_size)
 #endif
 
 	/* SD reserves LBA-0 for MBR and boots from LBA-1,
-	 * MMC/eMMC boots from LBA-0
+	 * MMC/eMMC boots from LBA-0 and LBA-4096
 	 */
-	start_lba = IS_SD(mmc) ? 1 : 0;
+	if (IS_SD(mmc))
+		start_lba = 1;
+#ifdef CONFIG_SUPPORT_EMMC_BOOT
+	else if (part)
+		start_lba = 0;
+#endif
+	else
+		start_lba = 4096;
 #ifdef CONFIG_BLK
 	blk_count = image_size / mmc->write_bl_len;
 	if (image_size % mmc->write_bl_len)
@@ -284,7 +290,7 @@ static size_t mmc_read_file(const char *file_name)
 	loff_t		act_read = 0;
 	int		rc;
 	struct mmc	*mmc;
-	const u8	mmc_dev_num = CONFIG_SYS_MMC_ENV_DEV;
+	const u8	mmc_dev_num = CONFIG_ENV_MMC_DEVICE_INDEX;
 
 	mmc = find_mmc_device(mmc_dev_num);
 	if (!mmc) {
@@ -925,7 +931,7 @@ static int check_image_header(void)
 	size = le32_to_cpu(hdr->blocksize);
 
 	if (hdr->blockid == 0x78) { /* SATA id */
-		struct blk_desc *blk_dev = IS_ENABLED(BLK) ? blk_get_devnum_by_uclass_id(UCLASS_SCSI, 0) : NULL;
+		struct blk_desc *blk_dev = IS_ENABLED(CONFIG_BLK) ? blk_get_devnum_by_uclass_id(UCLASS_SCSI, 0) : NULL;
 		unsigned long blksz = blk_dev ? blk_dev->blksz : 512;
 		offset *= blksz;
 	}

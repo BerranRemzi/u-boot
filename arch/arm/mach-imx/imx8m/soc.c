@@ -5,7 +5,7 @@
  * Peng Fan <peng.fan@nxp.com>
  */
 
-#include <common.h>
+#include <config.h>
 #include <cpu_func.h>
 #include <event.h>
 #include <init.h>
@@ -28,21 +28,31 @@
 #include <errno.h>
 #include <fdt_support.h>
 #include <fsl_wdog.h>
+#include <fuse.h>
 #include <imx_sip.h>
 #include <linux/bitops.h>
+#include <linux/bitfield.h>
+#include <linux/sizes.h>
+
+#include "../snvs.h"
 
 DECLARE_GLOBAL_DATA_PTR;
 
-#if defined(CONFIG_IMX_HAB)
-struct imx_sec_config_fuse_t const imx_sec_config_fuse = {
+#if IS_ENABLED(CONFIG_IMX_HAB)
+struct imx_fuse const imx_sec_config_fuse = {
 	.bank = 1,
+	.word = 3,
+};
+
+struct imx_fuse const imx_field_return_fuse = {
+	.bank = 8,
 	.word = 3,
 };
 #endif
 
 int timer_init(void)
 {
-#ifdef CONFIG_SPL_BUILD
+#if IS_ENABLED(CONFIG_XPL_BUILD)
 	struct sctr_regs *sctr = (struct sctr_regs *)SYSCNT_CTRL_BASE_ADDR;
 	unsigned long freq = readl(&sctr->cntfid0);
 
@@ -100,7 +110,7 @@ void set_wdog_reset(struct wdog_regs *wdog)
 	setbits_le16(&wdog->wcr, WDOG_WDT_MASK | WDOG_WDZST_MASK);
 }
 
-#ifdef CONFIG_ARMV8_PSCI
+#if IS_ENABLED(CONFIG_ARMV8_PSCI)
 #define PTE_MAP_NS	PTE_BLOCK_NS
 #else
 #define PTE_MAP_NS	0
@@ -204,6 +214,14 @@ void enable_caches(void)
 	int entry = imx8m_find_dram_entry_in_mem_map();
 	u64 attrs = imx8m_mem_map[entry].attrs;
 
+	/* Deactivate the data cache, possibly enabled in arch_cpu_init() */
+	dcache_disable();
+	/*
+	 * Force the call of setup_all_pgtables() in mmu_setup() by clearing tlb_fillptr
+	 * to update the TLB location udpated in board_f.c::reserve_mmu
+	 */
+	gd->arch.tlb_fillptr = 0;
+
 	while (i < CONFIG_NR_DRAM_BANKS &&
 	       entry < ARRAY_SIZE(imx8m_mem_map)) {
 		if (gd->bd->bi_dram[i].start == 0)
@@ -244,7 +262,7 @@ int dram_init(void)
 		return ret;
 
 	/* rom_pointer[1] contains the size of TEE occupies */
-	if (!IS_ENABLED(CONFIG_ARMV8_PSCI) && !IS_ENABLED(CONFIG_SPL_BUILD) && rom_pointer[1])
+	if (!IS_ENABLED(CONFIG_ARMV8_PSCI) && !IS_ENABLED(CONFIG_XPL_BUILD) && rom_pointer[1])
 		gd->ram_size = sdram_size - rom_pointer[1];
 	else
 		gd->ram_size = sdram_size;
@@ -273,7 +291,7 @@ int dram_init_banksize(void)
 	}
 
 	gd->bd->bi_dram[bank].start = PHYS_SDRAM;
-	if (!IS_ENABLED(CONFIG_ARMV8_PSCI) && !IS_ENABLED(CONFIG_SPL_BUILD) && rom_pointer[1]) {
+	if (!IS_ENABLED(CONFIG_ARMV8_PSCI) && !IS_ENABLED(CONFIG_XPL_BUILD) && rom_pointer[1]) {
 		phys_addr_t optee_start = (phys_addr_t)rom_pointer[0];
 		phys_size_t optee_size = (size_t)rom_pointer[1];
 
@@ -318,7 +336,7 @@ phys_size_t get_effective_memsize(void)
 			sdram_b1_size = sdram_size;
 		}
 
-		if (!IS_ENABLED(CONFIG_ARMV8_PSCI) && !IS_ENABLED(CONFIG_SPL_BUILD) &&
+		if (!IS_ENABLED(CONFIG_ARMV8_PSCI) && !IS_ENABLED(CONFIG_XPL_BUILD) &&
 		    rom_pointer[1]) {
 			/* We will relocate u-boot to Top of dram1. Tee position has two cases:
 			 * 1. At the top of dram1,  Then return the size removed optee size.
@@ -344,7 +362,7 @@ phys_addr_t board_get_usable_ram_top(phys_size_t total_size)
 	 * space below the 4G address boundary (which is 3GiB big),
 	 * even when the effective available memory is bigger.
 	 */
-	top_addr = clamp_val((u64)PHYS_SDRAM + gd->ram_size, 0, 0xffffffff);
+	top_addr = clamp_val((u64)PHYS_SDRAM + gd->ram_size, 0, SZ_4G);
 
 	/*
 	 * rom_pointer[0] stores the TEE memory start address.
@@ -560,6 +578,8 @@ static void imx8m_setup_snvs(void)
 	writel(SNVS_LPPGDR_INIT, SNVS_BASE_ADDR + SNVS_LPLVDR);
 	/* Clear interrupt status */
 	writel(0xffffffff, SNVS_BASE_ADDR + SNVS_LPSR);
+
+	init_snvs();
 }
 
 static void imx8m_setup_csu_tzasc(void)
@@ -585,19 +605,57 @@ static void imx8m_setup_csu_tzasc(void)
 	}
 }
 
+/*
+ * Place early TLB into the .data section so that it will not
+ * get cleared, use 16 kiB alignment.
+ */
+#define EARLY_TLB_SIZE SZ_64K
+u8 early_tlb[EARLY_TLB_SIZE] __section(".data") __aligned(0x4000);
+
+/*
+ * Initialize the MMU and activate cache in U-Boot pre-reloc stage
+ * MMU/TLB is updated in enable_caches() for U-Boot after relocation
+ */
+static void early_enable_caches(void)
+{
+	phys_size_t sdram_size;
+	int entry, ret;
+
+	if (IS_ENABLED(CONFIG_XPL_BUILD))
+		return;
+
+	if (CONFIG_IS_ENABLED(SYS_ICACHE_OFF) || CONFIG_IS_ENABLED(SYS_DCACHE_OFF))
+		return;
+
+	/* Use maximum available DRAM size in first bank. */
+	ret = board_phys_sdram_size(&sdram_size);
+	if (ret)
+		return;
+
+	entry = imx8m_find_dram_entry_in_mem_map();
+	imx8m_mem_map[entry].size = max(sdram_size, (phys_size_t)0xc0000000);
+
+	gd->arch.tlb_size = EARLY_TLB_SIZE;
+	gd->arch.tlb_addr = (unsigned long)&early_tlb;
+
+	/* Enable MMU (default configuration) */
+	dcache_enable();
+}
+
 int arch_cpu_init(void)
 {
 	struct ocotp_regs *ocotp = (struct ocotp_regs *)OCOTP_BASE_ADDR;
 
 #if !CONFIG_IS_ENABLED(SYS_ICACHE_OFF)
 	icache_enable();
+	early_enable_caches();
 #endif
 
 	/*
 	 * ROM might disable clock for SCTR,
 	 * enable the clock before timer_init.
 	 */
-	if (IS_ENABLED(CONFIG_SPL_BUILD))
+	if (IS_ENABLED(CONFIG_XPL_BUILD))
 		clock_enable(CCGR_SCTR, 1);
 	/*
 	 * Init timer at very early state, because sscg pll setting
@@ -605,7 +663,7 @@ int arch_cpu_init(void)
 	 */
 	timer_init();
 
-	if (IS_ENABLED(CONFIG_SPL_BUILD)) {
+	if (IS_ENABLED(CONFIG_XPL_BUILD)) {
 		clock_init();
 		imx_set_wdog_powerdown(false);
 
@@ -642,25 +700,23 @@ int arch_cpu_init(void)
 	return 0;
 }
 
-#if defined(CONFIG_IMX8MN) || defined(CONFIG_IMX8MP)
+#if IS_ENABLED(CONFIG_IMX8MN) || IS_ENABLED(CONFIG_IMX8MP)
 struct rom_api *g_rom_api = (struct rom_api *)0x980;
 #endif
 
-#if defined(CONFIG_IMX8M)
+#if IS_ENABLED(CONFIG_IMX8M)
 #include <spl.h>
-int spl_mmc_emmc_boot_partition(struct mmc *mmc)
+int imx8m_detect_secondary_image_boot(void)
 {
 	u32 *rom_log_addr = (u32 *)0x9e0;
 	u32 *rom_log;
 	u8 event_id;
-	int i, part;
-
-	part = default_spl_mmc_emmc_boot_partition(mmc);
+	int i, boot_secondary = 0;
 
 	/* If the ROM event log pointer is not valid. */
 	if (*rom_log_addr < 0x900000 || *rom_log_addr >= 0xb00000 ||
 	    *rom_log_addr & 0x3)
-		return part;
+		return -EINVAL;
 
 	/* Parse the ROM event ID version 2 log */
 	rom_log = (u32 *)(uintptr_t)(*rom_log_addr);
@@ -668,7 +724,7 @@ int spl_mmc_emmc_boot_partition(struct mmc *mmc)
 		event_id = rom_log[i] >> 24;
 		switch (event_id) {
 		case 0x00: /* End of list */
-			return part;
+			return boot_secondary;
 		/* Log entries with 1 parameter, skip 1 */
 		case 0x80: /* Start to perform the device initialization */
 		case 0x81: /* The boot device initialization completes */
@@ -686,26 +742,91 @@ int spl_mmc_emmc_boot_partition(struct mmc *mmc)
 			continue;
 		/* Boot from the secondary boot image */
 		case 0x51:
-			/*
-			 * Swap the eMMC boot partitions in case there was a
-			 * fallback event (i.e. primary image was corrupted
-			 * and that corruption was recognized by the BootROM),
-			 * so the SPL loads the rest of the U-Boot from the
-			 * correct eMMC boot partition, since the BootROM
-			 * leaves the boot partition set to the corrupted one.
-			 */
-			if (part == 1)
-				part = 2;
-			else if (part == 2)
-				part = 1;
+			boot_secondary = 1;
 			continue;
 		default:
 			continue;
 		}
 	}
 
+	return boot_secondary;
+}
+
+int spl_mmc_emmc_boot_partition(struct mmc *mmc)
+{
+	int part, ret;
+
+	part = default_spl_mmc_emmc_boot_partition(mmc);
+	if (part == 0)
+		return part;
+
+	ret = imx8m_detect_secondary_image_boot();
+	if (ret < 0) {
+		printf("Could not get boot partition! Using %d\n", part);
+		return part;
+	}
+
+	if (ret == 1) {
+		/*
+		 * Swap the eMMC boot partitions in case there was a
+		 * fallback event (i.e. primary image was corrupted
+		 * and that corruption was recognized by the BootROM),
+		 * so the SPL loads the rest of the U-Boot from the
+		 * correct eMMC boot partition, since the BootROM
+		 * leaves the boot partition set to the corrupted one.
+		 */
+		if (part == 1)
+			part = 2;
+		else if (part == 2)
+			part = 1;
+	}
+
 	return part;
 }
+
+int boot_mode_getprisec(void)
+{
+	return !!imx8m_detect_secondary_image_boot();
+}
+#endif
+
+#if IS_ENABLED(CONFIG_IMX8MN) || IS_ENABLED(CONFIG_IMX8MP)
+#if IS_ENABLED(CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_USE_PARTITION)
+#define IMG_CNTN_SET1_OFFSET	GENMASK(22, 19)
+unsigned long arch_spl_mmc_get_uboot_raw_sector(struct mmc *mmc,
+						unsigned long raw_sect)
+{
+	u32 val, offset;
+
+	if (fuse_read(2, 1, &val)) {
+		debug("Error reading fuse!\n");
+		return raw_sect;
+	}
+
+	val = FIELD_GET(IMG_CNTN_SET1_OFFSET, val);
+	if (val > 10) {
+		debug("Secondary image boot disabled!\n");
+		return raw_sect;
+	}
+
+	if (val == 0)
+		offset = SZ_4M;
+	else if (val == 1)
+		offset = SZ_2M;
+	else if (val == 2)
+		offset = SZ_1M;
+	else	/* flash.bin offset = 1 MiB * 2^n */
+		offset = SZ_1M << val;
+
+	offset /= 512;
+	offset -= CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_DATA_PART_OFFSET;
+
+	if (imx8m_detect_secondary_image_boot())
+		raw_sect += offset;
+
+	return raw_sect;
+}
+#endif /* CONFIG_SYS_MMCSD_RAW_MODE_U_BOOT_USE_PARTITION */
 #endif
 
 bool is_usb_boot(void)
@@ -713,7 +834,7 @@ bool is_usb_boot(void)
 	return get_boot_device() == USB_BOOT;
 }
 
-#ifdef CONFIG_OF_SYSTEM_SETUP
+#if IS_ENABLED(CONFIG_OF_SYSTEM_SETUP)
 bool check_fdt_new_path(void *blob)
 {
 	const char *soc_path = "/soc@0";
@@ -759,7 +880,7 @@ add_status:
 	return 0;
 }
 
-#ifdef CONFIG_IMX8MQ
+#if IS_ENABLED(CONFIG_IMX8MQ)
 bool check_dcss_fused(void)
 {
 	struct ocotp_regs *ocotp = (struct ocotp_regs *)OCOTP_BASE_ADDR;
@@ -870,19 +991,29 @@ int disable_vpu_nodes(void *blob)
 {
 	static const char * const nodes_path_8mq[] = {
 		"/vpu@38300000",
-		"/soc@0/vpu@38300000"
+		"/soc@0/vpu@38300000",
+		"/soc@0/video-codec@38300000",
+		"/soc@0/video-codec@38310000",
+		"/soc@0/blk-ctrl@38320000",
 	};
 
 	static const char * const nodes_path_8mm[] = {
 		"/vpu_g1@38300000",
 		"/vpu_g2@38310000",
-		"/vpu_h1@38320000"
+		"/vpu_h1@38320000",
+		"/soc@0/video-codec@38300000",
+		"/soc@0/video-codec@38310000",
+		"/soc@0/blk-ctrl@38330000",
 	};
 
 	static const char * const nodes_path_8mp[] = {
 		"/vpu_g1@38300000",
 		"/vpu_g2@38310000",
-		"/vpu_vc8000e@38320000"
+		"/vpu_vc8000e@38320000",
+		"/soc@0/video-codec@38300000",
+		"/soc@0/video-codec@38310000",
+		"/soc@0/blk-ctrl@38330000",
+		"/soc@0/blk-ctl@38330000",
 	};
 
 	if (is_imx8mq())
@@ -895,7 +1026,7 @@ int disable_vpu_nodes(void *blob)
 		return -EPERM;
 }
 
-#ifdef CONFIG_IMX8MN_LOW_DRIVE_MODE
+#if IS_ENABLED(CONFIG_IMX8MN_LOW_DRIVE_MODE)
 static int low_drive_gpu_freq(void *blob)
 {
 	static const char *nodes_path_8mn[] = {
@@ -1020,7 +1151,7 @@ int disable_gpu_nodes(void *blob)
 {
 	static const char * const nodes_path_8mn[] = {
 		"/gpu@38000000",
-		"/soc@/gpu@38000000"
+		"/soc@0/gpu@38000000"
 	};
 
 	static const char * const nodes_path_8mp[] = {
@@ -1037,7 +1168,8 @@ int disable_gpu_nodes(void *blob)
 int disable_npu_nodes(void *blob)
 {
 	static const char * const nodes_path_8mp[] = {
-		"/vipsi@38500000"
+		"/vipsi@38500000",
+		"/soc@0/npu@38500000",
 	};
 
 	return disable_fdt_nodes(blob, nodes_path_8mp, ARRAY_SIZE(nodes_path_8mp));
@@ -1060,117 +1192,6 @@ int disable_dsp_nodes(void *blob)
 	};
 
 	return disable_fdt_nodes(blob, nodes_path_8mp, ARRAY_SIZE(nodes_path_8mp));
-}
-
-static void disable_thermal_cpu_nodes(void *blob, u32 disabled_cores)
-{
-	static const char * const thermal_path[] = {
-		"/thermal-zones/cpu-thermal/cooling-maps/map0"
-	};
-
-	int nodeoff, cnt, i, ret, j;
-	u32 cooling_dev[12];
-
-	for (i = 0; i < ARRAY_SIZE(thermal_path); i++) {
-		nodeoff = fdt_path_offset(blob, thermal_path[i]);
-		if (nodeoff < 0)
-			continue; /* Not found, skip it */
-
-		cnt = fdtdec_get_int_array_count(blob, nodeoff, "cooling-device", cooling_dev, 12);
-		if (cnt < 0)
-			continue;
-
-		if (cnt != 12)
-			printf("Warning: %s, cooling-device count %d\n", thermal_path[i], cnt);
-
-		for (j = 0; j < cnt; j++)
-			cooling_dev[j] = cpu_to_fdt32(cooling_dev[j]);
-
-		ret = fdt_setprop(blob, nodeoff, "cooling-device", &cooling_dev,
-				  sizeof(u32) * (12 - disabled_cores * 3));
-		if (ret < 0) {
-			printf("Warning: %s, cooling-device setprop failed %d\n",
-			       thermal_path[i], ret);
-			continue;
-		}
-
-		printf("Update node %s, cooling-device prop\n", thermal_path[i]);
-	}
-}
-
-static void disable_pmu_cpu_nodes(void *blob, u32 disabled_cores)
-{
-	static const char * const pmu_path[] = {
-		"/pmu"
-	};
-
-	int nodeoff, cnt, i, ret, j;
-	u32 irq_affinity[4];
-
-	for (i = 0; i < ARRAY_SIZE(pmu_path); i++) {
-		nodeoff = fdt_path_offset(blob, pmu_path[i]);
-		if (nodeoff < 0)
-			continue; /* Not found, skip it */
-
-		cnt = fdtdec_get_int_array_count(blob, nodeoff, "interrupt-affinity",
-						 irq_affinity, 4);
-		if (cnt < 0)
-			continue;
-
-		if (cnt != 4)
-			printf("Warning: %s, interrupt-affinity count %d\n", pmu_path[i], cnt);
-
-		for (j = 0; j < cnt; j++)
-			irq_affinity[j] = cpu_to_fdt32(irq_affinity[j]);
-
-		ret = fdt_setprop(blob, nodeoff, "interrupt-affinity", &irq_affinity,
-				 sizeof(u32) * (4 - disabled_cores));
-		if (ret < 0) {
-			printf("Warning: %s, interrupt-affinity setprop failed %d\n",
-			       pmu_path[i], ret);
-			continue;
-		}
-
-		printf("Update node %s, interrupt-affinity prop\n", pmu_path[i]);
-	}
-}
-
-static int disable_cpu_nodes(void *blob, u32 disabled_cores)
-{
-	static const char * const nodes_path[] = {
-		"/cpus/cpu@1",
-		"/cpus/cpu@2",
-		"/cpus/cpu@3",
-	};
-	u32 i = 0;
-	int rc;
-	int nodeoff;
-
-	if (disabled_cores > 3)
-		return -EINVAL;
-
-	i = 3 - disabled_cores;
-
-	for (; i < 3; i++) {
-		nodeoff = fdt_path_offset(blob, nodes_path[i]);
-		if (nodeoff < 0)
-			continue; /* Not found, skip it */
-
-		debug("Found %s node\n", nodes_path[i]);
-
-		rc = fdt_del_node(blob, nodeoff);
-		if (rc < 0) {
-			printf("Unable to delete node %s, err=%s\n",
-			       nodes_path[i], fdt_strerror(rc));
-		} else {
-			printf("Delete node %s\n", nodes_path[i]);
-		}
-	}
-
-	disable_thermal_cpu_nodes(blob, disabled_cores);
-	disable_pmu_cpu_nodes(blob, disabled_cores);
-
-	return 0;
 }
 
 static int cleanup_nodes_for_efi(void *blob)
@@ -1199,48 +1220,6 @@ static int cleanup_nodes_for_efi(void *blob)
 		}
 
 		printf("Remove %s:%s\n", path[i][0], path[i][1]);
-	}
-
-	return 0;
-}
-
-static int fixup_thermal_trips(void *blob, const char *name)
-{
-	int minc, maxc;
-	int node, trip;
-
-	node = fdt_path_offset(blob, "/thermal-zones");
-	if (node < 0)
-		return node;
-
-	node = fdt_subnode_offset(blob, node, name);
-	if (node < 0)
-		return node;
-
-	node = fdt_subnode_offset(blob, node, "trips");
-	if (node < 0)
-		return node;
-
-	get_cpu_temp_grade(&minc, &maxc);
-
-	fdt_for_each_subnode(trip, blob, node) {
-		const char *type;
-		int temp, ret;
-
-		type = fdt_getprop(blob, trip, "type", NULL);
-		if (!type)
-			continue;
-
-		temp = 0;
-		if (!strcmp(type, "critical"))
-			temp = 1000 * maxc;
-		else if (!strcmp(type, "passive"))
-			temp = 1000 * (maxc - 10);
-		if (temp) {
-			ret = fdt_setprop_u32(blob, trip, "temperature", temp);
-			if (ret)
-				return ret;
-		}
 	}
 
 	return 0;
@@ -1291,8 +1270,9 @@ static int ft_add_optee_node(void *fdt, struct bd_info *bd)
 		}
 	}
 
+	/* Locate the optee node if it exists or create it. */
 	subpath = "optee";
-	offs = fdt_add_subnode(fdt, offs, subpath);
+	offs = fdt_find_or_add_subnode(fdt, offs, subpath);
 	if (offs < 0) {
 		printf("Could not create %s node.\n", subpath);
 		return offs;
@@ -1324,7 +1304,14 @@ static int ft_add_optee_node(void *fdt, struct bd_info *bd)
 
 int ft_system_setup(void *blob, struct bd_info *bd)
 {
-#ifdef CONFIG_IMX8MQ
+	static const char * const nodes_path[] = {
+		"/cpus/cpu@0",
+		"/cpus/cpu@1",
+		"/cpus/cpu@2",
+		"/cpus/cpu@3",
+	};
+
+#if IS_ENABLED(CONFIG_IMX8MQ)
 	int i = 0;
 	int rc;
 	int nodeoff;
@@ -1367,13 +1354,6 @@ usb_modify_speed:
 
 	/* Disable the CPU idle for A0 chip since the HW does not support it */
 	if (is_soc_rev(CHIP_REV_1_0)) {
-		static const char * const nodes_path[] = {
-			"/cpus/cpu@0",
-			"/cpus/cpu@1",
-			"/cpus/cpu@2",
-			"/cpus/cpu@3",
-		};
-
 		for (i = 0; i < ARRAY_SIZE(nodes_path); i++) {
 			nodeoff = fdt_path_offset(blob, nodes_path[i]);
 			if (nodeoff < 0)
@@ -1405,21 +1385,21 @@ usb_modify_speed:
 	}
 
 	if (is_imx8md())
-		disable_cpu_nodes(blob, 2);
+		disable_cpu_nodes(blob, nodes_path, 2, 4);
 
-#elif defined(CONFIG_IMX8MM)
+#elif IS_ENABLED(CONFIG_IMX8MM)
 	if (is_imx8mml() || is_imx8mmdl() ||  is_imx8mmsl())
 		disable_vpu_nodes(blob);
 
 	if (is_imx8mmd() || is_imx8mmdl())
-		disable_cpu_nodes(blob, 2);
+		disable_cpu_nodes(blob, nodes_path, 2, 4);
 	else if (is_imx8mms() || is_imx8mmsl())
-		disable_cpu_nodes(blob, 3);
+		disable_cpu_nodes(blob, nodes_path, 3, 4);
 
-#elif defined(CONFIG_IMX8MN)
+#elif IS_ENABLED(CONFIG_IMX8MN)
 	if (is_imx8mnl() || is_imx8mndl() ||  is_imx8mnsl())
 		disable_gpu_nodes(blob);
-#ifdef CONFIG_IMX8MN_LOW_DRIVE_MODE
+#if IS_ENABLED(CONFIG_IMX8MN_LOW_DRIVE_MODE)
 	else {
 		int ldm_gpu = low_drive_gpu_freq(blob);
 
@@ -1431,11 +1411,11 @@ usb_modify_speed:
 #endif
 
 	if (is_imx8mnd() || is_imx8mndl() || is_imx8mnud())
-		disable_cpu_nodes(blob, 2);
+		disable_cpu_nodes(blob, nodes_path, 2, 4);
 	else if (is_imx8mns() || is_imx8mnsl() || is_imx8mnus())
-		disable_cpu_nodes(blob, 3);
+		disable_cpu_nodes(blob, nodes_path, 3, 4);
 
-#elif defined(CONFIG_IMX8MP)
+#elif IS_ENABLED(CONFIG_IMX8MP)
 	if (is_imx8mpul()) {
 		/* Disable GPU */
 		disable_gpu_nodes(blob);
@@ -1460,7 +1440,7 @@ usb_modify_speed:
 		disable_dsp_nodes(blob);
 
 	if (is_imx8mpd())
-		disable_cpu_nodes(blob, 2);
+		disable_cpu_nodes(blob, nodes_path, 2, 4);
 #endif
 
 	cleanup_nodes_for_efi(blob);
@@ -1491,7 +1471,7 @@ void reset_cpu(void)
 }
 #endif
 
-#if defined(CONFIG_ARCH_MISC_INIT)
+#if IS_ENABLED(CONFIG_ARCH_MISC_INIT)
 int arch_misc_init(void)
 {
 	if (IS_ENABLED(CONFIG_FSL_CAAM)) {
@@ -1507,8 +1487,8 @@ int arch_misc_init(void)
 }
 #endif
 
-#if defined(CONFIG_SPL_BUILD)
-#if defined(CONFIG_IMX8MQ) || defined(CONFIG_IMX8MM) || defined(CONFIG_IMX8MN)
+#if IS_ENABLED(CONFIG_XPL_BUILD)
+#if IS_ENABLED(CONFIG_IMX8MQ) || IS_ENABLED(CONFIG_IMX8MM) || IS_ENABLED(CONFIG_IMX8MN)
 bool serror_need_skip = true;
 
 void do_error(struct pt_regs *pt_regs)
@@ -1543,7 +1523,7 @@ void do_error(struct pt_regs *pt_regs)
 #endif
 #endif
 
-#if defined(CONFIG_IMX8MN) || defined(CONFIG_IMX8MP)
+#if IS_ENABLED(CONFIG_IMX8MN) || IS_ENABLED(CONFIG_IMX8MP)
 enum env_location arch_env_get_location(enum env_operation op, int prio)
 {
 	enum boot_device dev = get_boot_device();
@@ -1591,7 +1571,7 @@ enum env_location arch_env_get_location(enum env_operation op, int prio)
 
 #endif
 
-#ifdef CONFIG_IMX_BOOTAUX
+#if IS_ENABLED(CONFIG_IMX_BOOTAUX)
 const struct rproc_att hostmap[] = {
 	/* aux core , host core,  size */
 	{ 0x00000000, 0x007e0000, 0x00020000 },

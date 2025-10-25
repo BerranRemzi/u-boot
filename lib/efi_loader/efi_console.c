@@ -8,8 +8,8 @@
 #define LOG_CATEGORY LOGC_EFI
 
 #include <ansi.h>
-#include <common.h>
 #include <charset.h>
+#include <efi_device_path.h>
 #include <malloc.h>
 #include <time.h>
 #include <dm/device.h>
@@ -30,6 +30,17 @@ struct cout_mode {
 };
 
 __maybe_unused static struct efi_object uart_obj;
+
+/*
+ * suppress emission of ANSI escape-characters for use by unit tests. Leave it
+ * as 0 for the default behaviour
+ */
+static bool no_ansi;
+
+void efi_console_set_ansi(bool allow_ansi)
+{
+	no_ansi = !allow_ansi;
+}
 
 static struct cout_mode efi_cout_modes[] = {
 	/* EFI Mode 0 is 80x25 and always present */
@@ -101,7 +112,7 @@ static int term_get_char(s32 *c)
 }
 
 /**
- * Receive and parse a reply from the terminal.
+ * term_read_reply() - receive and parse a reply from the terminal
  *
  * @n:		array of return values
  * @num:	number of return values expected
@@ -182,7 +193,7 @@ static efi_status_t EFIAPI efi_cout_output_string(
 	}
 	pos = buf;
 	utf16_utf8_strcpy(&pos, string);
-	fputs(stdout, buf);
+	puts(buf);
 	free(buf);
 
 	/*
@@ -349,13 +360,6 @@ static int __maybe_unused query_vidconsole(int *rows, int *cols)
 	return 0;
 }
 
-/**
- * efi_setup_console_size() - update the mode table.
- *
- * By default the only mode available is 80x25. If the console has at least 50
- * lines, enable mode 80x50. If we can query the console size and it is neither
- * 80x25 nor 80x50, set it as an additional mode.
- */
 void efi_setup_console_size(void)
 {
 	int rows = 25, cols = 80;
@@ -363,8 +367,12 @@ void efi_setup_console_size(void)
 
 	if (IS_ENABLED(CONFIG_VIDEO))
 		ret = query_vidconsole(&rows, &cols);
-	if (ret)
-		ret = query_console_serial(&rows, &cols);
+	if (ret) {
+		if (no_ansi)
+			ret = 0;
+		else
+			ret = query_console_serial(&rows, &cols);
+	}
 	if (ret)
 		return;
 
@@ -1176,7 +1184,6 @@ static efi_status_t EFIAPI efi_cin_unregister_key_notify(
 out:
 	return EFI_EXIT(ret);
 }
-
 
 /**
  * efi_cin_reset() - drain the input buffer

@@ -6,7 +6,6 @@
  * Copyright (C) 2002 - 2008  Paul Mundt
  */
 
-#include <common.h>
 #include <asm/global_data.h>
 #include <asm/io.h>
 #include <asm/processor.h>
@@ -113,7 +112,16 @@ static int serial_raw_putc(struct uart_port *port, const char c)
 
 static int serial_rx_fifo_level(struct uart_port *port)
 {
-	return scif_rxfill(port);
+	int ret;
+
+	ret = scif_rxfill(port);
+	if (ret)
+		return ret;
+
+	if (sci_in(port, SCxSR) & SCxSR_RDxF(port))
+		return 1;
+
+	return 0;
 }
 
 static int sh_serial_tstc_generic(struct uart_port *port)

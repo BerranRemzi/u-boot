@@ -34,6 +34,7 @@
 #define SMBCTL3_SDA_LVL		BIT(6)
 
 /* SMBCST */
+#define SMBCST_BUSY		BIT(0)
 #define SMBCST_BB		BIT(1)
 #define SMBCST_TGSCL		BIT(5)
 
@@ -479,11 +480,17 @@ static int npcm_i2c_xfer(struct udevice *dev,
 	struct npcm_i2c_bus *bus = dev_get_priv(dev);
 	struct npcm_i2c_regs *reg = bus->reg;
 	int ret = 0, err = 0;
+	u8 val;
 
 	if (nmsgs < 1 || nmsgs > 2) {
 		printf("%s: commands not support\n", __func__);
 		return -EREMOTEIO;
 	}
+
+	/* Wait for module out of busy */
+	if (readb_poll_timeout(&reg->cst, val, !(val & SMBCST_BUSY), 1000))
+		return -EBUSY;
+
 	/* clear ST register */
 	writeb(0xFF, &reg->st);
 
@@ -516,11 +523,6 @@ static int npcm_i2c_init_clk(struct npcm_i2c_bus *bus, u32 bus_freq)
 	u32 freq = bus->apb_clk;
 	u32 sclfrq;
 	u8 hldt, val;
-
-	if (bus_freq > I2C_FREQ_100K) {
-		printf("Support standard mode only\n");
-		return -EINVAL;
-	}
 
 	/* SCLFRQ = T(SCL)/4/T(CLK) = FREQ(CLK)/4/FREQ(SCL) */
 	sclfrq = freq / (bus_freq * 4);
@@ -575,7 +577,6 @@ static int npcm_i2c_probe(struct udevice *dev)
 		printf("%s: fail to get rate\n", __func__);
 		return -EINVAL;
 	}
-	clk_free(&clk);
 
 	bus->num = dev->seq_;
 	bus->reg = dev_read_addr_ptr(dev);

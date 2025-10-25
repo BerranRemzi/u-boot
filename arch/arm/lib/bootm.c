@@ -11,7 +11,7 @@
  * Copyright (C) 2001  Erik Mouw (J.A.K.Mouw@its.tudelft.nl)
  */
 
-#include <common.h>
+#include <bootm.h>
 #include <bootstage.h>
 #include <command.h>
 #include <cpu_func.h>
@@ -57,12 +57,9 @@ static void announce_and_cleanup(int fake)
 #ifdef CONFIG_BOOTSTAGE_FDT
 	bootstage_fdt_add_report();
 #endif
+	bootstage_stash_default();
 #ifdef CONFIG_BOOTSTAGE_REPORT
 	bootstage_report();
-#endif
-
-#ifdef CONFIG_USB_DEVICE
-	udc_disconnect();
 #endif
 
 	board_quiesce_devices();
@@ -73,11 +70,10 @@ static void announce_and_cleanup(int fake)
 	 * Call remove function of all devices with a removal flag set.
 	 * This may be useful for last-stage operations, like cancelling
 	 * of DMA operation or releasing device internal buffers.
+	 * dm_remove_devices_active() ensures that vital devices are removed in
+	 * a second round.
 	 */
-	dm_remove_devices_flags(DM_REMOVE_ACTIVE_ALL | DM_REMOVE_NON_VITAL);
-
-	/* Remove all active vital devices next */
-	dm_remove_devices_flags(DM_REMOVE_ACTIVE_ALL);
+	dm_remove_devices_active();
 
 	cleanup_before_linux();
 }
@@ -188,7 +184,7 @@ __weak void setup_board_tags(struct tag **in_params) {}
 static void do_nonsec_virt_switch(void)
 {
 	smp_kick_all_cpus();
-	dcache_disable();	/* flush cache before swtiching to EL2 */
+	dcache_disable();	/* flush cache before switching to EL2 */
 }
 #endif
 
@@ -378,9 +374,10 @@ static void boot_jump_linux(struct bootm_headers *images, int flag)
  * DIFFERENCE: Instead of calling prep and go at the end
  * they are called if subcommand is equal 0.
  */
-int do_bootm_linux(int flag, int argc, char *const argv[],
-		   struct bootm_headers *images)
+int do_bootm_linux(int flag, struct bootm_info *bmi)
 {
+	struct bootm_headers *images = bmi->images;
+
 	/* No need for those on ARM */
 	if (flag & BOOTM_STATE_OS_BD_T || flag & BOOTM_STATE_OS_CMDLINE)
 		return -1;

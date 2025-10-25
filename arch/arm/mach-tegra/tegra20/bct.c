@@ -4,10 +4,12 @@
  * Copyright (c) 2022, Svyatoslav Ryhel <clamor95@gmail.com>
  */
 
-#include <common.h>
 #include <command.h>
 #include <log.h>
+#include <vsprintf.h>
+#include <linux/string.h>
 #include <asm/arch-tegra/crypto.h>
+#include <asm/arch-tegra/fuse.h>
 #include "bct.h"
 #include "uboot_aes.h"
 
@@ -21,26 +23,27 @@ static int bct_patch(u8 *bct, u8 *ebt, u32 ebt_size)
 {
 	struct nvboot_config_table *bct_tbl = NULL;
 	u8 ebt_hash[AES128_KEY_LENGTH] = { 0 };
-	u8 sbk[AES128_KEY_LENGTH] = { 0 };
 	u8 *bct_hash = bct;
+	bool encrypted;
 	int ret;
 
 	bct += BCT_HASH;
 
-	memcpy(sbk, (u8 *)(bct + BCT_LENGTH),
-	       NVBOOT_CMAC_AES_HASH_LENGTH * 4);
-
-	ret = decrypt_data_block(bct, BCT_LENGTH, sbk);
-	if (ret)
-		return 1;
-
 	ebt_size = roundup(ebt_size, EBT_ALIGNMENT);
 
-	ret = encrypt_data_block(ebt, ebt_size, sbk);
-	if (ret)
-		return 1;
+	encrypted = tegra_fuse_get_operation_mode() == MODE_ODM_PRODUCTION_SECURE;
 
-	ret = sign_enc_data_block(ebt, ebt_size, ebt_hash, sbk);
+	if (encrypted) {
+		ret = decrypt_data_block(bct, bct, BCT_LENGTH);
+		if (ret)
+			return 1;
+
+		ret = encrypt_data_block(ebt, ebt, ebt_size);
+		if (ret)
+			return 1;
+	}
+
+	ret = sign_data_block(ebt, ebt_size, ebt_hash);
 	if (ret)
 		return 1;
 
@@ -52,11 +55,13 @@ static int bct_patch(u8 *bct, u8 *ebt, u32 ebt_size)
 	bct_tbl->bootloader[0].load_addr = CONFIG_SPL_TEXT_BASE;
 	bct_tbl->bootloader[0].length = ebt_size;
 
-	ret = encrypt_data_block(bct, BCT_LENGTH, sbk);
-	if (ret)
-		return 1;
+	if (encrypted) {
+		ret = encrypt_data_block(bct, bct, BCT_LENGTH);
+		if (ret)
+			return 1;
+	}
 
-	ret = sign_enc_data_block(bct, BCT_LENGTH, bct_hash, sbk);
+	ret = sign_data_block(bct, BCT_LENGTH, bct_hash);
 	if (ret)
 		return 1;
 

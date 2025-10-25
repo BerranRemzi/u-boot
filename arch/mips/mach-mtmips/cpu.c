@@ -3,7 +3,6 @@
  * Copyright (C) 2018 Stefan Roese <sr@denx.de>
  */
 
-#include <common.h>
 #include <event.h>
 #include <init.h>
 #include <malloc.h>
@@ -22,7 +21,7 @@ int dram_init(void)
 	return 0;
 }
 
-#ifndef CONFIG_SPL_BUILD
+#ifndef CONFIG_XPL_BUILD
 static int last_stage_init(void)
 {
 	void *src, *dst;

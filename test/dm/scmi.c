@@ -12,17 +12,16 @@
  * unknown SCMI protocol ID.
  */
 
-#include <common.h>
 #include <clk.h>
 #include <dm.h>
 #include <reset.h>
 #include <scmi_agent.h>
 #include <scmi_agent-uclass.h>
 #include <scmi_protocols.h>
+#include <stdio.h>
 #include <asm/scmi_test.h>
 #include <dm/device-internal.h>
 #include <dm/test.h>
-#include <linux/kconfig.h>
 #include <power/regulator.h>
 #include <test/ut.h>
 
@@ -96,7 +95,7 @@ static int dm_test_scmi_sandbox_agent(struct unit_test_state *uts)
 
 	return ret;
 }
-DM_TEST(dm_test_scmi_sandbox_agent, UT_TESTF_SCAN_FDT);
+DM_TEST(dm_test_scmi_sandbox_agent, UTF_SCAN_FDT);
 
 static int dm_test_scmi_base(struct unit_test_state *uts)
 {
@@ -203,8 +202,191 @@ static int dm_test_scmi_base(struct unit_test_state *uts)
 
 	return 0;
 }
+DM_TEST(dm_test_scmi_base, UTF_SCAN_FDT);
 
-DM_TEST(dm_test_scmi_base, UT_TESTF_SCAN_FDT);
+static int dm_test_scmi_cmd(struct unit_test_state *uts)
+{
+	struct udevice *agent_dev;
+	int num_proto = 0;
+	char cmd_out[30];
+
+	if (!CONFIG_IS_ENABLED(CMD_SCMI))
+		return -EAGAIN;
+
+	/* preparation */
+	ut_assertok(uclass_get_device_by_name(UCLASS_SCMI_AGENT, "scmi",
+					      &agent_dev));
+	ut_assertnonnull(agent_dev);
+
+	/*
+	 * Estimate the number of provided protocols.
+	 * This estimation is correct as far as a corresponding
+	 * protocol support is added to sandbox fake serer.
+	 */
+	if (CONFIG_IS_ENABLED(POWER_DOMAIN))
+		num_proto++;
+	if (CONFIG_IS_ENABLED(CLK_SCMI))
+		num_proto++;
+	if (CONFIG_IS_ENABLED(RESET_SCMI))
+		num_proto++;
+	if (CONFIG_IS_ENABLED(DM_REGULATOR_SCMI))
+		num_proto++;
+
+	/* scmi info */
+	ut_assertok(run_command("scmi info", 0));
+
+	ut_assert_nextline("SCMI device: scmi");
+	snprintf(cmd_out, 30, "  protocol version: 0x%x",
+		 SCMI_BASE_PROTOCOL_VERSION);
+	ut_assert_nextline(cmd_out);
+	ut_assert_nextline("  # of agents: 2");
+	ut_assert_nextline("      0: platform");
+	ut_assert_nextline("    > 1: OSPM");
+	snprintf(cmd_out, 30, "  # of protocols: %d", num_proto);
+	ut_assert_nextline(cmd_out);
+	if (CONFIG_IS_ENABLED(SCMI_POWER_DOMAIN))
+		ut_assert_nextline("      Power domain management");
+	if (CONFIG_IS_ENABLED(CLK_SCMI))
+		ut_assert_nextline("      Clock management");
+	if (CONFIG_IS_ENABLED(RESET_SCMI))
+		ut_assert_nextline("      Reset domain management");
+	if (CONFIG_IS_ENABLED(DM_REGULATOR_SCMI))
+		ut_assert_nextline("      Voltage domain management");
+	ut_assert_nextline("  vendor: U-Boot");
+	ut_assert_nextline("  sub vendor: Sandbox");
+	ut_assert_nextline("  impl version: 0x1");
+
+	ut_assert_console_end();
+
+	/* scmi perm_dev */
+	ut_assertok(run_command("scmi perm_dev 1 0 1", 0));
+	ut_assert_console_end();
+
+	ut_assert(run_command("scmi perm_dev 1 0 0", 0));
+	ut_assert_nextline("Denying access to device:0 failed (-13)");
+	ut_assert_console_end();
+
+	/* scmi perm_proto */
+	ut_assertok(run_command("scmi perm_proto 1 0 14 1", 0));
+	ut_assert_console_end();
+
+	ut_assert(run_command("scmi perm_proto 1 0 14 0", 0));
+	ut_assert_nextline("Denying access to protocol:0x14 on device:0 failed (-13)");
+	ut_assert_console_end();
+
+	/* scmi reset */
+	ut_assert(run_command("scmi reset 1 1", 0));
+	ut_assert_nextline("Reset failed (-13)");
+	ut_assert_console_end();
+
+	return 0;
+}
+DM_TEST(dm_test_scmi_cmd, UTF_SCAN_FDT | UTF_CONSOLE);
+
+static int dm_test_scmi_power_domains(struct unit_test_state *uts)
+{
+	struct sandbox_scmi_agent *agent;
+	struct sandbox_scmi_devices *scmi_devices;
+	struct udevice *agent_dev, *pwd, *dev;
+	u32 version, count, attributes, pstate;
+	u64 stats_addr;
+	size_t stats_len;
+	u8 *name;
+	int ret;
+
+	if (!CONFIG_IS_ENABLED(SCMI_POWER_DOMAIN))
+		return -EAGAIN;
+
+	/* preparation */
+	ut_assertok(load_sandbox_scmi_test_devices(uts, &agent, &dev));
+	ut_assertnonnull(agent);
+	scmi_devices = sandbox_scmi_devices_ctx(dev);
+	ut_assertnonnull(scmi_devices);
+	ut_asserteq(2, scmi_devices->pwdom->id); /* in test.dts */
+
+	ut_assertok(uclass_get_device_by_name(UCLASS_SCMI_AGENT, "scmi",
+					      &agent_dev));
+	ut_assertnonnull(agent_dev);
+	pwd = scmi_get_protocol(agent_dev, SCMI_PROTOCOL_ID_POWER_DOMAIN);
+	ut_assertnonnull(pwd);
+
+	/*
+	 * SCMI Power domain management protocol interfaces
+	 */
+	/* version */
+	ret = scmi_generic_protocol_version(pwd, SCMI_PROTOCOL_ID_POWER_DOMAIN,
+					    &version);
+	ut_assertok(ret);
+	ut_asserteq(agent->pwdom_version, version);
+
+	/* protocol attributes */
+	ret = scmi_pwd_protocol_attrs(pwd, &count, &stats_addr, &stats_len);
+	ut_assertok(ret);
+	ut_asserteq(agent->pwdom_count, count);
+	ut_asserteq(0, stats_len);
+
+	/* protocol message attributes */
+	ret = scmi_pwd_protocol_message_attrs(pwd, SCMI_PWD_STATE_SET,
+					      &attributes);
+	ut_assertok(ret);
+	ret = scmi_pwd_protocol_message_attrs(pwd, SCMI_PWD_STATE_NOTIFY,
+					      &attributes);
+	ut_asserteq(-ENOENT, ret); /* the protocol not supported */
+
+	/* power domain attributes */
+	ret = scmi_pwd_attrs(pwd, 0, &attributes, &name);
+	ut_assertok(ret);
+	ut_asserteq_str("power-domain--0", name);
+	free(name);
+
+	ret = scmi_pwd_attrs(pwd, 10, &attributes, &name);
+	ut_asserteq(-ENOENT, ret); /* domain-10 doesn't exist */
+
+	/* power domain state set/get */
+	ret = scmi_pwd_state_set(pwd, 0, 0, 0);
+	ut_assertok(ret);
+	ret = scmi_pwd_state_get(pwd, 0, &pstate);
+	ut_assertok(ret);
+	ut_asserteq(0, pstate); /* ON */
+
+	ret = scmi_pwd_state_set(pwd, 0, 0, SCMI_PWD_PSTATE_TYPE_LOST);
+	ut_assertok(ret);
+	ret = scmi_pwd_state_get(pwd, 0, &pstate);
+	ut_assertok(ret);
+	ut_asserteq(SCMI_PWD_PSTATE_TYPE_LOST, pstate); /* OFF */
+
+	ret = scmi_pwd_state_set(pwd, 0, 10, 0);
+	ut_asserteq(-ENOENT, ret);
+
+	/* power domain name get */
+	ret = scmi_pwd_name_get(pwd, 0, &name);
+	ut_assertok(ret);
+	ut_asserteq_str("power-domain--0-extended", name);
+	free(name);
+
+	ret = scmi_pwd_name_get(pwd, 10, &name);
+	ut_asserteq(-ENOENT, ret); /* domain-10 doesn't exist */
+
+	/*
+	 * U-Boot driver model interfaces
+	 */
+	/* power_domain_on */
+	ret = power_domain_on(scmi_devices->pwdom);
+	ut_assertok(ret);
+	ret = scmi_pwd_state_get(pwd, scmi_devices->pwdom->id, &pstate);
+	ut_assertok(ret);
+	ut_asserteq(0, pstate); /* ON */
+
+	/* power_domain_off */
+	ret = power_domain_off(scmi_devices->pwdom);
+	ut_assertok(ret);
+	ret = scmi_pwd_state_get(pwd, scmi_devices->pwdom->id, &pstate);
+	ut_assertok(ret);
+	ut_asserteq(SCMI_PWD_PSTATE_TYPE_LOST, pstate); /* OFF */
+
+	return release_sandbox_scmi_test_devices(uts, dev);
+}
+DM_TEST(dm_test_scmi_power_domains, UTF_SCAN_FDT);
 
 static int dm_test_scmi_clocks(struct unit_test_state *uts)
 {
@@ -213,6 +395,9 @@ static int dm_test_scmi_clocks(struct unit_test_state *uts)
 	struct udevice *agent_dev, *clock_dev, *dev;
 	int ret_dev;
 	int ret;
+
+	if (!CONFIG_IS_ENABLED(CLK_SCMI))
+		return -EAGAIN;
 
 	ret = load_sandbox_scmi_test_devices(uts, &agent, &dev);
 	if (ret)
@@ -270,7 +455,7 @@ static int dm_test_scmi_clocks(struct unit_test_state *uts)
 
 	return release_sandbox_scmi_test_devices(uts, dev);
 }
-DM_TEST(dm_test_scmi_clocks, UT_TESTF_SCAN_FDT);
+DM_TEST(dm_test_scmi_clocks, UTF_SCAN_FDT);
 
 static int dm_test_scmi_resets(struct unit_test_state *uts)
 {
@@ -278,6 +463,9 @@ static int dm_test_scmi_resets(struct unit_test_state *uts)
 	struct sandbox_scmi_devices *scmi_devices;
 	struct udevice *agent_dev, *reset_dev, *dev = NULL;
 	int ret;
+
+	if (!CONFIG_IS_ENABLED(RESET_SCMI))
+		return -EAGAIN;
 
 	ret = load_sandbox_scmi_test_devices(uts, &agent, &dev);
 	if (ret)
@@ -305,7 +493,7 @@ static int dm_test_scmi_resets(struct unit_test_state *uts)
 
 	return release_sandbox_scmi_test_devices(uts, dev);
 }
-DM_TEST(dm_test_scmi_resets, UT_TESTF_SCAN_FDT);
+DM_TEST(dm_test_scmi_resets, UTF_SCAN_FDT);
 
 static int dm_test_scmi_voltage_domains(struct unit_test_state *uts)
 {
@@ -314,6 +502,9 @@ static int dm_test_scmi_voltage_domains(struct unit_test_state *uts)
 	struct dm_regulator_uclass_plat *uc_pdata;
 	struct udevice *dev;
 	struct udevice *regul0_dev;
+
+	if (!CONFIG_IS_ENABLED(DM_REGULATOR_SCMI))
+		return -EAGAIN;
 
 	ut_assertok(load_sandbox_scmi_test_devices(uts, &agent, &dev));
 
@@ -357,4 +548,4 @@ static int dm_test_scmi_voltage_domains(struct unit_test_state *uts)
 
 	return release_sandbox_scmi_test_devices(uts, dev);
 }
-DM_TEST(dm_test_scmi_voltage_domains, UT_TESTF_SCAN_FDT);
+DM_TEST(dm_test_scmi_voltage_domains, UTF_SCAN_FDT);

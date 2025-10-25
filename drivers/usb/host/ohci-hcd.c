@@ -27,7 +27,7 @@
  *     to activate workaround for bug #41 or this driver will NOT work!
  */
 
-#include <common.h>
+#include <config.h>
 #include <cpu_func.h>
 #include <asm/byteorder.h>
 #include <dm.h>
@@ -1361,7 +1361,8 @@ pkt_print(ohci, NULL, dev, pipe, buffer, transfer_len,
 						wLength));
 				databuf = root_hub_str_index1;
 				OK(len);
-		}
+			}
+			fallthrough;
 		default:
 			stat = USB_ST_STALLED;
 		}

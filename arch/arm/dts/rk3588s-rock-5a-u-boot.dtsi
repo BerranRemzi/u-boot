@@ -4,19 +4,16 @@
  */
 
 #include "rk3588s-u-boot.dtsi"
-#include <dt-bindings/pinctrl/rockchip.h>
-#include <dt-bindings/input/input.h>
-#include <dt-bindings/gpio/gpio.h>
-#include <dt-bindings/usb/pd.h>
 
 / {
-	chosen {
-		u-boot,spl-boot-order = "same-as-spl", &sdmmc, &sdhci;
+	leds {
+		io-led {
+			default-state = "on";
+		};
 	};
 };
 
 &sdhci {
 	cap-mmc-highspeed;
-	mmc-ddr-1_8v;
 	mmc-hs200-1_8v;
 };

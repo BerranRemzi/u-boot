@@ -6,7 +6,6 @@
 
 #define LOG_CATEGORY UCLASS_BLK
 
-#include <common.h>
 #include <blk.h>
 #include <dm.h>
 #include <log.h>
@@ -36,6 +35,9 @@ static struct {
 	{ UCLASS_VIRTIO, "virtio" },
 	{ UCLASS_PVBLOCK, "pvblock" },
 	{ UCLASS_BLKMAP, "blkmap" },
+	{ UCLASS_RKMTD, "rkmtd" },
+	{ UCLASS_MTD, "mtd" },
+	{ UCLASS_MTD, "ubi" },
 };
 
 static enum uclass_id uclass_name_to_iftype(const char *uclass_idname)
@@ -440,7 +442,7 @@ long blk_read(struct udevice *dev, lbaint_t start, lbaint_t blkcnt, void *buf)
 			  start, blkcnt, desc->blksz, buf))
 		return blkcnt;
 
-	if (IS_ENABLED(CONFIG_BOUNCE_BUFFER)) {
+	if (IS_ENABLED(CONFIG_BOUNCE_BUFFER) && desc->bb) {
 		struct blk_bounce_buffer bbstate = { .dev = dev };
 		int ret;
 
@@ -477,7 +479,7 @@ long blk_write(struct udevice *dev, lbaint_t start, lbaint_t blkcnt,
 
 	blkcache_invalidate(desc->uclass_id, desc->devnum);
 
-	if (IS_ENABLED(CONFIG_BOUNCE_BUFFER)) {
+	if (IS_ENABLED(CONFIG_BOUNCE_BUFFER) && desc->bb) {
 		struct blk_bounce_buffer bbstate = { .dev = dev };
 		int ret;
 
@@ -609,30 +611,6 @@ static int blk_flags_check(struct udevice *dev, enum blk_flag_t req_flags)
 	return flags & req_flags ? 0 : 1;
 }
 
-int blk_find_first(enum blk_flag_t flags, struct udevice **devp)
-{
-	int ret;
-
-	for (ret = uclass_find_first_device(UCLASS_BLK, devp);
-	     *devp && !blk_flags_check(*devp, flags);
-	     ret = uclass_find_next_device(devp))
-		return 0;
-
-	return -ENODEV;
-}
-
-int blk_find_next(enum blk_flag_t flags, struct udevice **devp)
-{
-	int ret;
-
-	for (ret = uclass_find_next_device(devp);
-	     *devp && !blk_flags_check(*devp, flags);
-	     ret = uclass_find_next_device(devp))
-		return 0;
-
-	return -ENODEV;
-}
-
 int blk_first_device_err(enum blk_flag_t flags, struct udevice **devp)
 {
 	for (uclass_first_device(UCLASS_BLK, devp);
@@ -693,9 +671,22 @@ static int blk_claim_devnum(enum uclass_id uclass_id, int devnum)
 	return -ENOENT;
 }
 
-int blk_create_device(struct udevice *parent, const char *drv_name,
-		      const char *name, int uclass_id, int devnum, int blksz,
-		      lbaint_t lba, struct udevice **devp)
+/**
+ * blk_create_device() - Create a new block device
+ *
+ * @parent:	Parent of the new device
+ * @drv_name:	Driver name to use for the block device
+ * @name:	Name for the device
+ * @uclass_id:	Interface type (enum uclass_id_t)
+ * @devnum:	Device number, specific to the interface type, or -1 to
+ *		allocate the next available number
+ * @blksz:	Block size of the device in bytes (typically 512)
+ * @lba:	Total number of blocks of the device
+ * @devp:	the new device (which has not been probed)
+ */
+static int blk_create_device(struct udevice *parent, const char *drv_name,
+			     const char *name, int uclass_id, int devnum,
+			     int blksz, lbaint_t lba, struct udevice **devp)
 {
 	struct blk_desc *desc;
 	struct udevice *dev;

@@ -8,7 +8,6 @@
  * associated with software and timer interrupts.
  */
 
-#include <common.h>
 #include <dm.h>
 #include <regmap.h>
 #include <syscon.h>
@@ -30,6 +29,10 @@ int riscv_init_ipi(void)
 
 	ret = uclass_get_device_by_driver(UCLASS_TIMER,
 					  DM_DRIVER_GET(riscv_aclint_timer), &dev);
+	if (ret == -ENODEV)
+		ret = uclass_get_device_by_driver(UCLASS_SYSCON,
+						  DM_DRIVER_GET(riscv_aclint_swi), &dev);
+
 	if (ret)
 		return ret;
 
@@ -67,6 +70,7 @@ int riscv_get_ipi(int hart, int *pending)
 
 static const struct udevice_id riscv_aclint_swi_ids[] = {
 	{ .compatible = "riscv,aclint-mswi", .data = RISCV_SYSCON_ACLINT },
+	{ .compatible = "thead,c900-clint", .data = RISCV_SYSCON_ACLINT },
 	{ }
 };
 
