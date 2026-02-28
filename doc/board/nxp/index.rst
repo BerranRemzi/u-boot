@@ -13,6 +13,7 @@ NXP Semiconductors
    imx8qxp_mek
    imx8ulp_evk
    imx91_11x11_evk
+   imx91_11x11_frdm
    imx93_9x9_qsb
    imx93_11x11_evk
    imx93_frdm
@@ -26,4 +27,5 @@ NXP Semiconductors
    mx6sabresd
    mx6ul_14x14_evk
    mx6ullevk
+   rproc
    psb

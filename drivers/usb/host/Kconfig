@@ -187,7 +187,7 @@ config USB_EHCI_EXYNOS
 
 config USB_EHCI_MARVELL
 	bool "Support for Marvell on-chip EHCI USB controller"
-	depends on ARCH_MVEBU || ARCH_KIRKWOOD || ARCH_ORION5X
+	depends on ARCH_MVEBU || ARCH_KIRKWOOD
 	default y
 	select USB_EHCI_IS_TDI if !ARM64
 	select USB_EHCI_IS_TDI if ALLEYCAT_5
@@ -210,10 +210,10 @@ config USB_EHCI_MX6
 
 config USB_EHCI_MX7
 	bool "Support for i.MX7/i.MX8M/i.MX9 on-chip EHCI USB controller"
-	depends on ARCH_MX7 || IMX8M || IMX93 || IMX95
+	depends on ARCH_MX7 || IMX8M || IMX9
 	select EHCI_HCD_INIT_AFTER_RESET if ARCH_MX7
-	select PHY if IMX8M || IMX93 || IMX95
-	select NOP_PHY if IMX8M || IMX93 || IMX95
+	select PHY if IMX8M || IMX9
+	select NOP_PHY if IMX8M || IMX9
 	default y
 	---help---
 	  Enables support for the on-chip EHCI controller on i.MX7/i.MX8M/i.MX9 SoCs.
@@ -271,6 +271,7 @@ config USB_EHCI_MSM
 
 config USB_EHCI_PCI
 	bool "Support for PCI-based EHCI USB controller"
+	depends on PCI
 	default y if X86
 	help
 	  Enables support for the PCI-based EHCI controller.
@@ -366,6 +367,7 @@ config USB_OHCI_GENERIC
 config USB_OHCI_DA8XX
 	bool "Support for da850 OHCI USB controller"
 	depends on ARCH_DAVINCI
+	select DEVRES
 	help
 	  Enable support for the da850 USB controller.
 

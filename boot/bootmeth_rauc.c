@@ -17,6 +17,7 @@
 #include <fs.h>
 #include <malloc.h>
 #include <mapmem.h>
+#include <part.h>
 #include <string.h>
 #include <linux/stringify.h>
 #include <asm/cache.h>
@@ -96,8 +97,10 @@ static int distro_rauc_scan_parts(struct bootflow *bflow)
 {
 	struct blk_desc *desc;
 	struct distro_rauc_priv *priv;
+	struct disk_partition fs_info;
 	char *boot_order;
 	const char **boot_order_list;
+	bool slot_found = false;
 	int ret;
 	int i;
 
@@ -119,27 +122,30 @@ static int distro_rauc_scan_parts(struct bootflow *bflow)
 		if (desc) {
 			ret = fs_set_blk_dev_with_part(desc, slot->boot_part);
 			if (ret)
-				return log_msg_ret("part", ret);
+				continue;
 			fs_close();
-			ret = fs_set_blk_dev_with_part(desc, slot->root_part);
+			ret = part_get_info(desc, slot->root_part, &fs_info);
 			if (ret)
-				return log_msg_ret("part", ret);
-			fs_close();
+				continue;
+			slot_found = true;
 		}
 	}
 	str_free_list(boot_order_list);
 
-	return 0;
+	if (slot_found)
+		return 0;
+
+	return -1;
 }
 
 static int distro_rauc_read_bootflow(struct udevice *dev, struct bootflow *bflow)
 {
-	struct distro_rauc_priv *priv;
-	int ret;
+	struct distro_rauc_priv *priv = NULL;
+	int ret = 0;
 	char *slot;
 	int i;
-	char *partitions;
-	char *boot_order;
+	char *partitions = NULL;
+	char *boot_order = NULL;
 	const char *default_boot_order;
 	const char **default_boot_order_list;
 	char *boot_order_copy;
@@ -171,10 +177,22 @@ static int distro_rauc_read_bootflow(struct udevice *dev, struct bootflow *bflow
 	if (!priv)
 		return log_msg_ret("buf", -ENOMEM);
 	priv->slots = calloc(1, sizeof(struct distro_rauc_slot));
+	if (!priv->slots) {
+		free(priv);
+		return log_msg_ret("buf", -ENOMEM);
+	}
 
 	/* Copy default boot_order, so we can leave the original unmodified */
 	boot_order_copy = strdup(default_boot_order);
+	if (!boot_order_copy) {
+		ret = log_msg_ret("buf", -ENOMEM);
+		goto rauc_read_bootflow_err;
+	}
 	partitions = strdup(CONFIG_BOOTMETH_RAUC_PARTITIONS);
+	if (!partitions) {
+		ret = log_msg_ret("buf", -ENOMEM);
+		goto rauc_read_bootflow_err;
+	}
 
 	for (i = 1;
 	     (parts = strsep(&partitions, " ")) &&
@@ -184,13 +202,26 @@ static int distro_rauc_read_bootflow(struct udevice *dev, struct bootflow *bflow
 		struct distro_rauc_slot **new_slots;
 
 		s = calloc(1, sizeof(struct distro_rauc_slot));
+		if (!s) {
+			ret = log_msg_ret("buf", -ENOMEM);
+			goto rauc_read_bootflow_err;
+		}
 		s->name = strdup(slot);
+		if (!s->name) {
+			free(s);
+			ret = log_msg_ret("buf", -ENOMEM);
+			goto rauc_read_bootflow_err;
+		}
 		s->boot_part = simple_strtoul(strsep(&parts, ","), NULL, 10);
 		s->root_part = simple_strtoul(strsep(&parts, ","), NULL, 10);
 		new_slots = realloc(priv->slots, (i + 1) *
 				    sizeof(struct distro_rauc_slot));
-		if (!new_slots)
-			return log_msg_ret("buf", -ENOMEM);
+		if (!new_slots) {
+			free(s->name);
+			free(s);
+			ret = log_msg_ret("buf", -ENOMEM);
+			goto rauc_read_bootflow_err;
+		}
 		priv->slots = new_slots;
 		priv->slots[i - 1] = s;
 		priv->slots[i] = NULL;
@@ -199,15 +230,19 @@ static int distro_rauc_read_bootflow(struct udevice *dev, struct bootflow *bflow
 	bflow->bootmeth_priv = priv;
 
 	ret = distro_rauc_scan_parts(bflow);
-	if (ret < 0) {
-		distro_rauc_priv_free(priv);
-		free(boot_order_copy);
-		return ret;
-	}
+	if (ret < 0)
+		goto rauc_read_bootflow_err;
 
 	bflow->state = BOOTFLOWST_READY;
 
 	return 0;
+
+rauc_read_bootflow_err:
+	distro_rauc_priv_free(priv);
+	free(boot_order_copy);
+	free(partitions);
+
+	return ret;
 }
 
 static int distro_rauc_read_file(struct udevice *dev, struct bootflow *bflow,

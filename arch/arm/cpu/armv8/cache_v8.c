@@ -61,12 +61,6 @@ static int get_effective_el(void)
 int mem_map_from_dram_banks(unsigned int index, unsigned int len, u64 attrs)
 {
 	unsigned int i;
-	int ret = fdtdec_setup_memory_banksize();
-
-	if (ret) {
-		log_err("%s: Failed to setup dram banks\n", __func__);
-		return ret;
-	}
 
 	if (index + CONFIG_NR_DRAM_BANKS >= len) {
 		log_err("%s: Provided mem_map array has insufficient size for DRAM entries\n",
@@ -884,15 +878,16 @@ void flush_dcache_range(unsigned long start, unsigned long stop)
 void dcache_enable(void)
 {
 	/* The data cache is not active unless the mmu is enabled */
-	if (!mmu_status())
+	if (!mmu_status()) {
+		__asm_invalidate_tlb_all();
 		mmu_setup();
+	}
 
 	/* Set up page tables only once (it is done also by mmu_setup()) */
 	if (!gd->arch.tlb_fillptr)
 		setup_all_pgtables();
 
 	invalidate_dcache_all();
-	__asm_invalidate_tlb_all();
 	set_sctlr(get_sctlr() | CR_C);
 }
 
